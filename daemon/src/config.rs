@@ -34,6 +34,12 @@ pub struct Config {
     pub analyzers: AnalyzerConfig,
     pub min_space_to_start_recording_mb: u64,
     pub min_space_to_continue_recording_mb: u64,
+    /// GPS mode: 0=Disabled, 1=Fixed coordinates, 2=API endpoint
+    pub gps_mode: u8,
+    /// Fixed latitude used when gps_mode=1
+    pub gps_fixed_latitude: Option<f64>,
+    /// Fixed longitude used when gps_mode=1
+    pub gps_fixed_longitude: Option<f64>,
 }
 
 impl Default for Config {
@@ -51,6 +57,9 @@ impl Default for Config {
             enabled_notifications: vec![NotificationType::Warning, NotificationType::LowBattery],
             min_space_to_start_recording_mb: 1,
             min_space_to_continue_recording_mb: 1,
+            gps_mode: 0,
+            gps_fixed_latitude: None,
+            gps_fixed_longitude: None,
         }
     }
 }
