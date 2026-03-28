@@ -26,7 +26,7 @@ use crate::config::Config;
 use crate::diag::DiagDeviceCtrlMessage;
 use crate::display::DisplayState;
 use crate::gps::GpsData;
-use crate::pcap::generate_pcap_data;
+use crate::pcap::{generate_pcap_data, load_gps_records_for_entry};
 use crate::qmdl_store::RecordingStore;
 
 pub struct ServerState {
@@ -328,6 +328,7 @@ pub async fn get_zip(
     };
 
     let qmdl_store_lock = state.qmdl_store_lock.clone();
+    let gps_records = load_gps_records_for_entry(&state, entry_index).await;
 
     let (reader, writer) = duplex(8192);
 
@@ -371,7 +372,7 @@ pub async fn get_zip(
                 };
 
                 if let Err(e) =
-                    generate_pcap_data(&mut entry_writer, qmdl_file_for_pcap, qmdl_size_bytes).await
+                    generate_pcap_data(&mut entry_writer, qmdl_file_for_pcap, qmdl_size_bytes, gps_records).await
                 {
                     // if we fail to generate the PCAP file, we should still continue and give the
                     // user the QMDL.
