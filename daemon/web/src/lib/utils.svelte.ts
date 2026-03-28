@@ -27,6 +27,9 @@ export interface Config {
     analyzers: AnalyzerConfig;
     min_space_to_start_recording_mb: number;
     min_space_to_continue_recording_mb: number;
+    gps_mode: number;
+    gps_fixed_latitude: number | null;
+    gps_fixed_longitude: number | null;
 }
 
 export async function req(method: string, url: string, json_body?: unknown): Promise<string> {
@@ -112,4 +115,21 @@ export interface TimeResponse {
 
 export async function get_daemon_time(): Promise<TimeResponse> {
     return JSON.parse(await req('GET', '/api/time'));
+}
+
+export interface GpsData {
+    latitude: number;
+    longitude: number;
+    timestamp: string;
+}
+
+export async function get_gps(): Promise<GpsData | null> {
+    const response = await fetch('/api/gps');
+    if (response.status === 404) {
+        return null;
+    }
+    if (response.status >= 200 && response.status < 300) {
+        return response.json();
+    }
+    throw new Error(await response.text());
 }

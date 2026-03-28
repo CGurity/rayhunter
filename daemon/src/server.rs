@@ -25,6 +25,7 @@ use crate::analysis::{AnalysisCtrlMessage, AnalysisStatus};
 use crate::config::Config;
 use crate::diag::DiagDeviceCtrlMessage;
 use crate::display::DisplayState;
+use crate::gps::GpsData;
 use crate::pcap::generate_pcap_data;
 use crate::qmdl_store::RecordingStore;
 
@@ -37,6 +38,7 @@ pub struct ServerState {
     pub analysis_sender: Sender<AnalysisCtrlMessage>,
     pub daemon_restart_token: CancellationToken,
     pub ui_update_sender: Option<Sender<DisplayState>>,
+    pub gps_state: Arc<RwLock<Option<GpsData>>>,
 }
 
 #[cfg_attr(feature = "apidocs", utoipa::path(
@@ -498,6 +500,7 @@ mod tests {
             analysis_sender: analysis_tx,
             daemon_restart_token: CancellationToken::new(),
             ui_update_sender: None,
+            gps_state: Arc::new(RwLock::new(None)),
         })
     }
 
