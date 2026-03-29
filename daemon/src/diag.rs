@@ -55,6 +55,7 @@ pub struct DiagTask {
     notification_channel: tokio::sync::mpsc::Sender<Notification>,
     min_space_to_start_mb: u64,
     min_space_to_continue_mb: u64,
+    gps_mode: u8,
     state: DiagState,
     max_type_seen: EventType,
     bytes_since_space_check: usize,
@@ -103,6 +104,7 @@ impl DiagTask {
         notification_channel: tokio::sync::mpsc::Sender<Notification>,
         min_space_to_start_mb: u64,
         min_space_to_continue_mb: u64,
+        gps_mode: u8,
     ) -> Self {
         Self {
             ui_update_sender,
@@ -111,6 +113,7 @@ impl DiagTask {
             notification_channel,
             min_space_to_start_mb,
             min_space_to_continue_mb,
+            gps_mode,
             state: DiagState::Stopped,
             max_type_seen: EventType::Informational,
             bytes_since_space_check: 0,
@@ -143,7 +146,7 @@ impl DiagTask {
             DiskSpaceCheck::Failed => {}
         }
 
-        let (qmdl_file, analysis_file) = match qmdl_store.new_entry().await {
+        let (qmdl_file, analysis_file) = match qmdl_store.new_entry(self.gps_mode).await {
             Ok(files) => files,
             Err(e) => {
                 let msg = format!("failed creating QMDL file entry: {e}");
@@ -382,10 +385,11 @@ pub fn run_diag_read_thread(
     notification_channel: tokio::sync::mpsc::Sender<Notification>,
     min_space_to_start_mb: u64,
     min_space_to_continue_mb: u64,
+    gps_mode: u8,
 ) {
     task_tracker.spawn(async move {
         let mut diag_stream = pin!(dev.as_stream().into_stream());
-        let mut diag_task = DiagTask::new(ui_update_sender, analysis_sender, analyzer_config, notification_channel, min_space_to_start_mb, min_space_to_continue_mb);
+        let mut diag_task = DiagTask::new(ui_update_sender, analysis_sender, analyzer_config, notification_channel, min_space_to_start_mb, min_space_to_continue_mb, gps_mode);
         qmdl_file_tx
             .send(DiagDeviceCtrlMessage::StartRecording { response_tx: None })
             .await
