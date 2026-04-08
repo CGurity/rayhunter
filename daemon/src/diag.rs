@@ -27,6 +27,7 @@ use rayhunter::diag_device::DiagDevice;
 use rayhunter::qmdl::QmdlWriter;
 
 use crate::analysis::{AnalysisCtrlMessage, AnalysisWriter};
+use crate::config::GpsMode;
 use crate::display;
 use crate::notifications::{Notification, NotificationType};
 use crate::qmdl_store::{RecordingStore, RecordingStoreError};
@@ -57,7 +58,7 @@ pub struct DiagTask {
     notification_channel: tokio::sync::mpsc::Sender<Notification>,
     min_space_to_start_mb: u64,
     min_space_to_continue_mb: u64,
-    gps_mode: u8,
+    gps_mode: GpsMode,
     gps_fixed_coords: Option<(f64, f64)>,
     state: DiagState,
     max_type_seen: EventType,
@@ -107,7 +108,7 @@ impl DiagTask {
         notification_channel: tokio::sync::mpsc::Sender<Notification>,
         min_space_to_start_mb: u64,
         min_space_to_continue_mb: u64,
-        gps_mode: u8,
+        gps_mode: GpsMode,
         gps_fixed_coords: Option<(f64, f64)>,
     ) -> Self {
         Self {
@@ -162,7 +163,7 @@ impl DiagTask {
         // For fixed-mode sessions, write the configured coordinates to the sidecar
         // immediately so the per-session GPS is stored durably and isn't affected
         // by future config changes or GPS API calls.
-        if self.gps_mode == 1 {
+        if self.gps_mode == GpsMode::Fixed {
             if let Some((lat, lon)) = self.gps_fixed_coords {
                 if let Some((entry_idx, _)) = qmdl_store.get_current_entry() {
                     if let Ok(mut gps_file) = qmdl_store.open_entry_gps_for_append(entry_idx).await
@@ -410,7 +411,7 @@ pub fn run_diag_read_thread(
     notification_channel: tokio::sync::mpsc::Sender<Notification>,
     min_space_to_start_mb: u64,
     min_space_to_continue_mb: u64,
-    gps_mode: u8,
+    gps_mode: GpsMode,
     gps_fixed_coords: Option<(f64, f64)>,
 ) {
     task_tracker.spawn(async move {
