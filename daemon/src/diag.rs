@@ -11,7 +11,9 @@ use axum::response::{IntoResponse, Response};
 use futures::{StreamExt, TryStreamExt, future};
 use log::{debug, error, info, warn};
 use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+use crate::gps::GpsRecord;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{RwLock, oneshot};
 use tokio_stream::wrappers::LinesStream;
@@ -56,6 +58,7 @@ pub struct DiagTask {
     min_space_to_start_mb: u64,
     min_space_to_continue_mb: u64,
     gps_mode: u8,
+    gps_fixed_coords: Option<(f64, f64)>,
     state: DiagState,
     max_type_seen: EventType,
     bytes_since_space_check: usize,
@@ -105,6 +108,7 @@ impl DiagTask {
         min_space_to_start_mb: u64,
         min_space_to_continue_mb: u64,
         gps_mode: u8,
+        gps_fixed_coords: Option<(f64, f64)>,
     ) -> Self {
         Self {
             ui_update_sender,
@@ -114,6 +118,7 @@ impl DiagTask {
             min_space_to_start_mb,
             min_space_to_continue_mb,
             gps_mode,
+            gps_fixed_coords,
             state: DiagState::Stopped,
             max_type_seen: EventType::Informational,
             bytes_since_space_check: 0,
@@ -154,6 +159,26 @@ impl DiagTask {
                 return Err(msg);
             }
         };
+        // For fixed-mode sessions, write the configured coordinates to the sidecar
+        // immediately so the per-session GPS is stored durably and isn't affected
+        // by future config changes or GPS API calls.
+        if self.gps_mode == 1 {
+            if let Some((lat, lon)) = self.gps_fixed_coords {
+                if let Some((entry_idx, _)) = qmdl_store.get_current_entry() {
+                    if let Ok(mut gps_file) = qmdl_store.open_entry_gps_for_append(entry_idx).await
+                    {
+                        let record = GpsRecord {
+                            unix_ts: 0,
+                            lat,
+                            lon,
+                        };
+                        if let Ok(json) = serde_json::to_string(&record) {
+                            let _ = gps_file.write_all(format!("{json}\n").as_bytes()).await;
+                        }
+                    }
+                }
+            }
+        }
         self.stop_current_recording().await;
         let qmdl_writer = QmdlWriter::new(qmdl_file);
         let analysis_writer = match AnalysisWriter::new(analysis_file, &self.analyzer_config).await
@@ -386,10 +411,11 @@ pub fn run_diag_read_thread(
     min_space_to_start_mb: u64,
     min_space_to_continue_mb: u64,
     gps_mode: u8,
+    gps_fixed_coords: Option<(f64, f64)>,
 ) {
     task_tracker.spawn(async move {
         let mut diag_stream = pin!(dev.as_stream().into_stream());
-        let mut diag_task = DiagTask::new(ui_update_sender, analysis_sender, analyzer_config, notification_channel, min_space_to_start_mb, min_space_to_continue_mb, gps_mode);
+        let mut diag_task = DiagTask::new(ui_update_sender, analysis_sender, analyzer_config, notification_channel, min_space_to_start_mb, min_space_to_continue_mb, gps_mode, gps_fixed_coords);
         qmdl_file_tx
             .send(DiagDeviceCtrlMessage::StartRecording { response_tx: None })
             .await
