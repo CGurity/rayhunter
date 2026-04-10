@@ -37,6 +37,17 @@ min_space_to_continue_recording_mb = 1
 # Analyzer Configuration
 # Enable/disable specific IMSI catcher detection heuristics
 # See https://github.com/EFForg/rayhunter/blob/main/doc/heuristics.md for details
+# WebDAV Upload
+# When webdav_url is set, completed recordings are uploaded as PCAP files at the
+# configured interval using HTTP Basic Auth. Leave webdav_url empty to disable.
+#webdav_url = "http://nas.local/recordings"
+#webdav_username = ""
+#webdav_password = ""
+# How often (in hours) to check for and upload pending recordings
+#webdav_upload_interval_hours = 1
+# Set to true to delete local recordings after a successful upload
+#webdav_auto_delete = false
+
 [analyzers]
 imsi_requested = true
 connection_redirect_2g_downgrade = true

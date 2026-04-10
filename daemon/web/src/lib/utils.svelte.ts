@@ -30,6 +30,11 @@ export interface Config {
     gps_mode: number;
     gps_fixed_latitude: number | null;
     gps_fixed_longitude: number | null;
+    webdav_url: string | null;
+    webdav_username: string | null;
+    webdav_password: string | null;
+    webdav_auto_delete: boolean;
+    webdav_upload_interval_hours: number;
 }
 
 export async function req(method: string, url: string, json_body?: unknown): Promise<string> {

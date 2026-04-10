@@ -70,6 +70,8 @@ pub struct ManifestEntry {
     pub stop_reason: Option<String>,
     #[serde(default)]
     pub gps_mode: Option<GpsMode>,
+    #[serde(default)]
+    pub webdav_uploaded: bool,
 }
 
 impl ManifestEntry {
@@ -86,6 +88,7 @@ impl ManifestEntry {
             arch: Some(metadata.arch),
             stop_reason: None,
             gps_mode: Some(gps_mode),
+            webdav_uploaded: false,
         }
     }
 
@@ -221,6 +224,7 @@ impl RecordingStore {
                 arch: None,
                 stop_reason: None,
                 gps_mode: None,
+                webdav_uploaded: false,
             });
         }
 
@@ -404,6 +408,15 @@ impl RecordingStore {
         Ok(())
     }
 
+    pub async fn mark_entry_uploaded(&mut self, name: &str) -> Result<(), RecordingStoreError> {
+        if let Some(entry) = self.manifest.entries.iter_mut().find(|e| e.name == name) {
+            entry.webdav_uploaded = true;
+            self.write_manifest().await
+        } else {
+            Err(RecordingStoreError::NoSuchEntryError)
+        }
+    }
+
     pub fn is_current_entry(&self, name: &str) -> bool {
         match self.current_entry {
             Some(idx) => match self.manifest.entries.get(idx) {
@@ -493,6 +506,7 @@ async fn remove_file_if_exists(path: &Path) -> Result<(), io::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::GpsMode;
     use tempfile::{Builder, TempDir};
 
     fn make_temp_dir() -> TempDir {
@@ -513,7 +527,7 @@ mod tests {
     async fn test_creating_updating_and_closing_entries() {
         let dir = make_temp_dir();
         let mut store = RecordingStore::create(dir.path()).await.unwrap();
-        let _ = store.new_entry(0).await.unwrap();
+        let _ = store.new_entry(GpsMode::Disabled).await.unwrap();
         let entry_index = store.current_entry.unwrap();
         assert_eq!(
             RecordingStore::read_manifest(dir.path()).await.unwrap(),
@@ -550,7 +564,7 @@ mod tests {
     async fn test_create_on_existing_store() {
         let dir = make_temp_dir();
         let mut store = RecordingStore::create(dir.path()).await.unwrap();
-        let _ = store.new_entry(0).await.unwrap();
+        let _ = store.new_entry(GpsMode::Disabled).await.unwrap();
         let entry_index = store.current_entry.unwrap();
         store
             .update_entry_qmdl_size(entry_index, 1000)
@@ -564,9 +578,9 @@ mod tests {
     async fn test_repeated_new_entries() {
         let dir = make_temp_dir();
         let mut store = RecordingStore::create(dir.path()).await.unwrap();
-        let _ = store.new_entry(0).await.unwrap();
+        let _ = store.new_entry(GpsMode::Disabled).await.unwrap();
         let entry_index = store.current_entry.unwrap();
-        let _ = store.new_entry(0).await.unwrap();
+        let _ = store.new_entry(GpsMode::Disabled).await.unwrap();
         let new_entry_index = store.current_entry.unwrap();
         assert_ne!(entry_index, new_entry_index);
         assert_eq!(store.manifest.entries.len(), 2);
@@ -576,7 +590,7 @@ mod tests {
     async fn test_delete_all_entries() {
         let dir = make_temp_dir();
         let mut store = RecordingStore::create(dir.path()).await.unwrap();
-        let _ = store.new_entry(0).await.unwrap();
+        let _ = store.new_entry(GpsMode::Disabled).await.unwrap();
         assert!(store.current_entry.is_some());
 
         store.delete_all_entries().await.unwrap();

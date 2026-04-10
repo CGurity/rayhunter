@@ -70,6 +70,16 @@ pub struct Config {
     pub gps_fixed_latitude: Option<f64>,
     /// Fixed longitude used when gps_mode=1
     pub gps_fixed_longitude: Option<f64>,
+    /// WebDAV server URL for automatic PCAP uploads (leave empty to disable)
+    pub webdav_url: Option<String>,
+    /// WebDAV basic auth username
+    pub webdav_username: Option<String>,
+    /// WebDAV basic auth password
+    pub webdav_password: Option<String>,
+    /// Delete local recording after a successful WebDAV upload
+    pub webdav_auto_delete: bool,
+    /// How often (in hours) to check for and upload pending recordings
+    pub webdav_upload_interval_hours: u64,
 }
 
 impl Default for Config {
@@ -90,6 +100,11 @@ impl Default for Config {
             gps_mode: GpsMode::Disabled,
             gps_fixed_latitude: None,
             gps_fixed_longitude: None,
+            webdav_url: None,
+            webdav_username: None,
+            webdav_password: None,
+            webdav_auto_delete: false,
+            webdav_upload_interval_hours: 1,
         }
     }
 }

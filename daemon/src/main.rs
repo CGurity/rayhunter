@@ -11,6 +11,7 @@ mod pcap;
 mod qmdl_store;
 mod server;
 mod stats;
+mod webdav;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -322,6 +323,7 @@ async fn run_with_config(
         ui_update_sender: Some(ui_update_tx),
         gps_state: Arc::new(tokio::sync::RwLock::new(initial_gps)),
     });
+    webdav::run_webdav_upload_worker(&task_tracker, state.clone(), shutdown_token.clone());
     run_server(&task_tracker, state, shutdown_token.clone()).await;
 
     task_tracker.close();
