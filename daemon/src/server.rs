@@ -417,6 +417,73 @@ pub async fn get_zip(
     summary = "Set display state",
     description = "Change the display state (color bar or otherwise) of the device for debugging purposes."
 ))]
+pub async fn test_webdav(
+    State(state): State<Arc<ServerState>>,
+) -> Result<(StatusCode, String), (StatusCode, String)> {
+    let url = state.config.webdav_url.as_ref().ok_or((
+        StatusCode::BAD_REQUEST,
+        "No WebDAV URL configured".to_string(),
+    ))?;
+
+    if url.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "WebDAV URL is empty".to_string(),
+        ));
+    }
+
+    let username = state.config.webdav_username.clone().unwrap_or_default();
+    let password = state.config.webdav_password.clone().unwrap_or_default();
+    let test_url = format!(
+        "{}/{}",
+        url.trim_end_matches('/'),
+        "rayhunter-connection-test.tmp"
+    );
+
+    let client = reqwest::Client::new();
+
+    let put_response = client
+        .put(&test_url)
+        .basic_auth(&username, Some(&password))
+        .header("Content-Type", "application/octet-stream")
+        .body("rayhunter connection test")
+        .send()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to reach WebDAV server: {e}"),
+            )
+        })?;
+
+    let status = put_response.status();
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            format!("Authentication failed (HTTP {status}): check username and password"),
+        ));
+    }
+    if !status.is_success() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("WebDAV server returned HTTP {status}"),
+        ));
+    }
+
+    // Clean up the test file, but don't fail if delete doesn't work
+    client
+        .delete(&test_url)
+        .basic_auth(&username, Some(&password))
+        .send()
+        .await
+        .ok();
+
+    Ok((
+        StatusCode::OK,
+        "WebDAV connection successful".to_string(),
+    ))
+}
+
 pub async fn debug_set_display_state(
     State(state): State<Arc<ServerState>>,
     Json(display_state): Json<DisplayState>,
@@ -462,7 +529,7 @@ mod tests {
     ) -> String {
         let entry_name = {
             let mut store = store_lock.write().await;
-            let (mut qmdl_file, _analysis_file) = store.new_entry(0).await.unwrap();
+            let (mut qmdl_file, _analysis_file) = store.new_entry(crate::config::GpsMode::Disabled).await.unwrap();
 
             if !test_data.is_empty() {
                 use tokio::io::AsyncWriteExt;

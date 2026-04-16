@@ -3,9 +3,11 @@ use std::time::Duration;
 
 use log::{error, info, warn};
 use tokio::io::AsyncReadExt;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::diag::DiagDeviceCtrlMessage;
 use crate::pcap::{generate_pcap_data, load_gps_records_for_entry};
 use crate::server::ServerState;
 
@@ -22,6 +24,7 @@ pub fn run_webdav_upload_worker(
     let password = state.config.webdav_password.clone().unwrap_or_default();
     let auto_delete = state.config.webdav_auto_delete;
     let interval = Duration::from_secs(state.config.webdav_upload_interval_hours * 3600);
+    let manage_recording = !state.config.debug_mode;
 
     task_tracker.spawn(async move {
         let client = reqwest::Client::new();
@@ -31,7 +34,44 @@ pub fn run_webdav_upload_worker(
                 _ = shutdown_token.cancelled() => break,
             }
 
-            // Snapshot which entries need uploading (name + size only — indices can shift)
+            // Stop the current recording so the latest data is included in the upload.
+            // In debug mode there is no diag thread, so skip this.
+            let was_recording = state.qmdl_store_lock.read().await.current_entry.is_some();
+            if was_recording && manage_recording {
+                if state
+                    .diag_device_ctrl_sender
+                    .send(DiagDeviceCtrlMessage::StopRecording)
+                    .await
+                    .is_err()
+                {
+                    warn!("WebDAV: failed to send StopRecording, skipping upload cycle");
+                    continue;
+                }
+
+                // Poll until current_entry is cleared (up to 10 seconds)
+                let mut stopped = false;
+                for _ in 0..20 {
+                    if state.qmdl_store_lock.read().await.current_entry.is_none() {
+                        stopped = true;
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                if !stopped {
+                    warn!("WebDAV: timed out waiting for recording to stop, skipping upload cycle");
+                    // Best-effort restart so measurement continues
+                    state
+                        .diag_device_ctrl_sender
+                        .send(DiagDeviceCtrlMessage::StartRecording { response_tx: None })
+                        .await
+                        .ok();
+                    continue;
+                }
+                info!("WebDAV: recording stopped for upload cycle");
+            }
+
+            // Snapshot which entries need uploading (name + size only — indices can shift as
+            // entries are deleted during this loop)
             let entries_to_upload: Vec<(String, usize)> = {
                 let store = state.qmdl_store_lock.read().await;
                 store
@@ -49,7 +89,7 @@ pub fn run_webdav_upload_worker(
             };
 
             for (entry_name, qmdl_size_bytes) in entries_to_upload {
-                // Re-look up index by name; earlier deletes within this iteration can shift indices
+                // Re-look up index by name — earlier deletes in this loop can shift indices
                 let entry_index = {
                     let store = state.qmdl_store_lock.read().await;
                     match store.entry_for_name(&entry_name) {
@@ -71,7 +111,7 @@ pub fn run_webdav_upload_worker(
                     }
                 };
 
-                // Generate PCAP into a buffer via the duplex pipe
+                // Generate PCAP into a buffer via a duplex pipe
                 let (mut reader, writer) = tokio::io::duplex(64 * 1024);
                 let entry_name_for_task = entry_name.clone();
                 tokio::spawn(async move {
@@ -123,11 +163,32 @@ pub fn run_webdav_upload_worker(
                     Ok(response) => {
                         let status = response.status();
                         let body = response.text().await.unwrap_or_default();
-                        warn!("WebDAV: upload of {entry_name} failed ({status}): {body}");
+                        warn!("WebDAV: upload of {entry_name} failed (HTTP {status}): {body}");
                     }
                     Err(e) => {
                         warn!("WebDAV: upload of {entry_name} failed: {e}");
                     }
+                }
+            }
+
+            // Restart recording to minimize disruption
+            if was_recording && manage_recording {
+                let (tx, rx) = oneshot::channel();
+                if state
+                    .diag_device_ctrl_sender
+                    .send(DiagDeviceCtrlMessage::StartRecording {
+                        response_tx: Some(tx),
+                    })
+                    .await
+                    .is_ok()
+                {
+                    match rx.await {
+                        Ok(Ok(())) => info!("WebDAV: recording restarted after upload cycle"),
+                        Ok(Err(e)) => error!("WebDAV: failed to restart recording: {e}"),
+                        Err(_) => error!("WebDAV: recording restart response channel dropped"),
+                    }
+                } else {
+                    error!("WebDAV: failed to send StartRecording after upload cycle");
                 }
             }
         }

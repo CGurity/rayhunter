@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { get_config, set_config, test_notification, type Config } from '../utils.svelte';
+    import { get_config, set_config, test_notification, test_webdav, type Config } from '../utils.svelte';
     import Modal from './Modal.svelte';
 
     let { shown = $bindable() }: { shown: boolean } = $props();
@@ -12,6 +12,9 @@
     let messageType = $state<'success' | 'error' | null>(null);
     let testMessage = $state('');
     let testMessageType = $state<'success' | 'error' | null>(null);
+    let testingWebdav = $state(false);
+    let webdavTestMessage = $state('');
+    let webdavTestMessageType = $state<'success' | 'error' | null>(null);
 
     async function load_config() {
         try {
@@ -57,6 +60,22 @@
             testMessageType = 'error';
         } finally {
             testingNotification = false;
+        }
+    }
+
+    async function send_test_webdav() {
+        try {
+            testingWebdav = true;
+            webdavTestMessage = '';
+            webdavTestMessageType = null;
+            await test_webdav();
+            webdavTestMessage = 'WebDAV connection successful!';
+            webdavTestMessageType = 'success';
+        } catch (error) {
+            webdavTestMessage = `${error}`;
+            webdavTestMessageType = 'error';
+        } finally {
+            testingWebdav = false;
         }
     }
 
@@ -484,6 +503,49 @@
                         <label for="webdav_auto_delete" class="ml-2 block text-sm text-gray-700">
                             Delete local recording after successful upload
                         </label>
+                    </div>
+
+                    <div>
+                        <button
+                            type="button"
+                            onclick={send_test_webdav}
+                            disabled={testingWebdav}
+                            class="bg-rayhunter-blue hover:bg-rayhunter-dark-blue disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md flex flex-row gap-1 items-center"
+                        >
+                            {#if testingWebdav}
+                                <div
+                                    class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
+                                ></div>
+                                Testing...
+                            {:else}
+                                <svg
+                                    class="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                                    ></path>
+                                </svg>
+                                Test WebDAV Connection
+                            {/if}
+                        </button>
+                        <p class="text-xs text-gray-500 mt-1">
+                            Uses the saved configuration, not the values above
+                        </p>
+                        {#if webdavTestMessage}
+                            <div
+                                class="mt-2 p-2 rounded text-sm {webdavTestMessageType === 'error'
+                                    ? 'bg-red-100 text-red-700'
+                                    : 'bg-green-100 text-green-700'}"
+                            >
+                                {webdavTestMessage}
+                            </div>
+                        {/if}
                     </div>
                 </div>
 

@@ -112,6 +112,17 @@ export async function test_notification(): Promise<void> {
     }
 }
 
+export async function test_webdav(): Promise<void> {
+    const response = await fetch('/api/test-webdav', {
+        method: 'POST',
+    });
+
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error);
+    }
+}
+
 export interface TimeResponse {
     system_time: string;
     adjusted_time: string;
