@@ -86,6 +86,10 @@ pub struct Config {
     pub dns_servers: Option<Vec<String>>,
     /// WebDAV upload configuration. The upload worker runs whenever `webdav.url` is non-empty.
     pub webdav: WebdavConfig,
+    /// How often (in seconds) to automatically stop and restart recording, closing off the
+    /// current entry so it becomes eligible for WebDAV upload. 0 disables automatic rotation,
+    /// in which case an entry only closes on an explicit stop or daemon shutdown.
+    pub rotate_interval_secs: u64,
 }
 
 /// Configuration for uploading finished QMDL recordings to a WebDAV server.
@@ -148,6 +152,7 @@ impl Default for Config {
             wifi_enabled: false,
             dns_servers: None,
             webdav: WebdavConfig::default(),
+            rotate_interval_secs: 0,
         }
     }
 }

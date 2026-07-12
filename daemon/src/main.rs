@@ -17,10 +17,11 @@ mod webdav;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::battery::run_battery_notification_worker;
 use crate::config::{GpsMode, parse_args, parse_config};
-use crate::diag::run_diag_read_thread;
+use crate::diag::{run_diag_read_thread, run_recording_rotation_worker};
 use crate::error::RayhunterError;
 use crate::gps::{get_gps, post_gps};
 use crate::notifications::{NotificationService, run_notification_worker};
@@ -181,9 +182,37 @@ fn run_shutdown_thread(
     })
 }
 
+// Takes an exclusive, non-blocking flock on /tmp/rayhunter.lock and leaks the
+// fd so the lock is held for the life of the process (released automatically
+// on exit, however it happens). Guards against two rayhunter-daemon
+// processes running concurrently, e.g. when a device's autostart mechanism
+// (such as the TP-Link NAT port-trigger hack) fires more than once — without
+// this, a second instance would get all the way through opening the diag
+// device and spawning worker threads before finally panicking on the HTTP
+// port bind.
+fn acquire_singleton_lock_or_exit() {
+    use std::os::unix::io::AsRawFd;
+
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open("/tmp/rayhunter.lock")
+        .expect("failed to open /tmp/rayhunter.lock");
+
+    let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if ret != 0 {
+        error!("another rayhunter-daemon instance is already running, exiting");
+        std::process::exit(0);
+    }
+
+    std::mem::forget(file);
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), RayhunterError> {
     rayhunter::init_logging(log::LevelFilter::Info);
+
+    acquire_singleton_lock_or_exit();
 
     crate::crypto_provider::install_default();
 
@@ -243,6 +272,17 @@ async fn run_with_config(
             config.gps_mode,
             gps_fixed_coords,
         );
+
+        if config.rotate_interval_secs > 0 {
+            info!("Starting recording rotation worker");
+            run_recording_rotation_worker(
+                &task_tracker,
+                shutdown_token.clone(),
+                diag_tx.clone(),
+                Duration::from_secs(config.rotate_interval_secs),
+            );
+        }
+
         info!("Starting UI");
 
         let update_ui = match &config.device {

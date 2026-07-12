@@ -15,9 +15,12 @@ use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use crate::gps::GpsRecord;
+use tokio::select;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{RwLock, oneshot};
+use tokio::time::MissedTickBehavior;
 use tokio_stream::wrappers::LinesStream;
+use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 #[cfg(feature = "apidocs")]
@@ -543,6 +546,46 @@ pub fn run_diag_read_thread(
                             error!("error reading diag device: {err}");
                             return Err(err);
                         }
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Periodically stops and restarts recording so the current entry is closed
+/// off on a schedule, e.g. to give the WebDAV upload worker a steady stream
+/// of finished entries instead of one entry that never closes until shutdown.
+pub fn run_recording_rotation_worker(
+    task_tracker: &TaskTracker,
+    shutdown_token: CancellationToken,
+    diag_device_ctrl_sender: Sender<DiagDeviceCtrlMessage>,
+    rotate_interval: Duration,
+) {
+    task_tracker.spawn(async move {
+        let mut interval = tokio::time::interval(rotate_interval);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        // The first tick fires immediately; skip it since recording was just started.
+        interval.tick().await;
+
+        loop {
+            select! {
+                _ = shutdown_token.cancelled() => break,
+                _ = interval.tick() => {
+                    info!("rotating recording entry");
+                    if diag_device_ctrl_sender.send(DiagDeviceCtrlMessage::StopRecording).await.is_err() {
+                        warn!("couldn't send stop recording message for rotation, diag thread gone");
+                        break;
+                    }
+                    let (response_tx, response_rx) = oneshot::channel();
+                    if diag_device_ctrl_sender.send(DiagDeviceCtrlMessage::StartRecording { response_tx: Some(response_tx) }).await.is_err() {
+                        warn!("couldn't send start recording message for rotation, diag thread gone");
+                        break;
+                    }
+                    match response_rx.await {
+                        Ok(Ok(())) => {},
+                        Ok(Err(err)) => warn!("failed to restart recording after rotation: {err}"),
+                        Err(err) => warn!("failed to receive start recording response after rotation: {err}"),
                     }
                 }
             }
