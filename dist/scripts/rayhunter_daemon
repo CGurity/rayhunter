@@ -2,18 +2,27 @@
 
 set -e
 
+PIDFILE=/tmp/rayhunter.pid
+
 case "$1" in
 start)
+    if ps | grep -q "[r]ayhunter-daemon"; then
+        echo "rayhunter-daemon already running, skipping start"
+        exit 0
+    fi
+
     echo -n "Starting rayhunter: "
     # Below line may be replaced by the installer with device-specific startup commands, such as mounting the SD card.
     #RAYHUNTER-PRESTART
-    start-stop-daemon -S -b --make-pidfile --pidfile /tmp/rayhunter.pid \
+    start-stop-daemon -S -b --make-pidfile --pidfile "$PIDFILE" \
     --startas /bin/sh -- -c "RUST_LOG=info exec /data/rayhunter/rayhunter-daemon /data/rayhunter/config.toml > /data/rayhunter/rayhunter.log 2>&1"
     echo "done"
     ;;
   stop)
     echo -n "Stopping rayhunter: "
-    start-stop-daemon -K -p /tmp/rayhunter.pid
+    start-stop-daemon -K -p "$PIDFILE" 2>/dev/null || true
+    pkill -f /data/rayhunter/rayhunter-daemon 2>/dev/null || true
+    rm -f "$PIDFILE"
     echo "done"
     ;;
   restart)
